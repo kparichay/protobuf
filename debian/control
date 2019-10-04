@@ -108,3 +108,20 @@ Description: protocol buffers compiler library (development files)
  .
  This package contains the development headers and static library needed for
  writing protobuf compilers.
+
+Package: protobuf-compiler17
+Architecture: linux-any
+Multi-Arch: same
+Section: devel
+Depends: ${misc:Depends}, ${shlibs:Depends},
+ libprotoc17 (= ${binary:Version}), libprotobuf17 (= ${binary:Version})
+Replaces: protobuf-compiler (<< 2.1.0)
+Breaks: protobuf-compiler (<< 2.1.0)
+Description: compiler for protocol buffer definition files
+ Protocol buffers are Google's language-neutral, platform-neutral, extensible
+ mechanism for serializing structured data – think XML, but smaller, faster,
+ and simpler. You define how you want your data to be structured once, then you
+ can use special generated source code to easily write and read your structured
+ data to and from a variety of data streams and using a variety of languages.
+ .
+ This package contains the protobuf compiler (protoc) binary.

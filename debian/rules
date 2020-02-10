@@ -6,6 +6,7 @@ export DEB_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
 else
 export DEB_MULTIARCH ?= $(shell dpkg-architecture -qDEB_BUILD_MULTIARCH)
 endif
+export DEB_CXXFLAGS_MAINT_APPEND=-std=c++11
 
 include /usr/share/dpkg/architecture.mk
 ifeq ($(origin CXX),default)
@@ -55,8 +56,6 @@ override_dh_clean:
 	find $(CURDIR) -name Makefile -delete
 
 override_dh_auto_test-arch:
-	dh_auto_test --arch
-
 override_dh_auto_test-indep:
 	:
 

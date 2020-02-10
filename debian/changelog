@@ -1,3 +1,11 @@
+protobuf (3.8.0-6) unstable; urgency=medium
+
+  * Bumped up to version 3.8.0
+  * Replaced the pre-embedded submodules with new ones required by 3.8.0
+  * Created new package to provide protoc
+
+ -- Wook Song <wook16.song@samsung.com>  Fri, 7 Feb 2020 15:42:52 +0900
+
 protobuf (3.6.1-4) unstable; urgency=medium
 
   * Note that -dev package contains common proto files (closes: #842159).

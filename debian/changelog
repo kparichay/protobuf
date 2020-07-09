@@ -1,3 +1,10 @@
+protobuf (3.12.3-0) unstable; urgency=medium
+
+  * Bumped up to version 3.12.3
+  * Replaced the pre-embedded submodules with new ones required by 3.12.3
+
+ -- Parichay Kapoor <pk.kapoor@samsung.com>  Thu, 09 Jul 2020 18:20:05 +0900
+
 protobuf (3.8.0-6) unstable; urgency=medium
 
   * Bumped up to version 3.8.0

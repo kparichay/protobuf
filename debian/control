@@ -3,10 +3,10 @@ Section: devel
 Priority: optional
 Build-Depends: debhelper (>=9), autoconf, automake, libtool, zlib1g-dev
 Maintainer: Laszlo Boszormenyi (GCS) <gcs@debian.org>
-Standards-Version: 3.6.1
+Standards-Version: 3.12.3
 Homepage: https://github.com/protocolbuffers/protobuf
 
-Package: libprotobuf19
+Package: libprotobuf23
 Architecture: linux-any
 Multi-Arch: same
 Section: libs
@@ -25,7 +25,7 @@ Description: protocol buffers C++ library
  .
  This package contains the runtime library needed for C++ applications.
 
-Package: libprotobuf-lite19
+Package: libprotobuf-lite23
 Architecture: linux-any
 Multi-Arch: same
 Section: libs
@@ -50,7 +50,7 @@ Architecture: linux-any
 Multi-Arch: same
 Section: libdevel
 Depends: ${misc:Depends}, zlib1g-dev,
- libprotobuf19 (= ${binary:Version}), libprotobuf-lite19 (= ${binary:Version})
+ libprotobuf23 (= ${binary:Version}), libprotobuf-lite23 (= ${binary:Version})
 Description: protocol buffers C++ library (development files) and proto files
  Protocol buffers are a flexible, efficient, automated mechanism for
  serializing structured data - similar to XML, but smaller, faster, and
@@ -66,7 +66,7 @@ Description: protocol buffers C++ library (development files) and proto files
  This package contains the development headers and static libraries needed for
  writing C++ applications. Includes well known proto type files.
 
-Package: libprotoc19
+Package: libprotoc23
 Architecture: linux-any
 Multi-Arch: same
 Section: libs
@@ -91,7 +91,7 @@ Architecture: linux-any
 Multi-Arch: same
 Section: libdevel
 Depends: ${misc:Depends},
- libprotoc19 (= ${binary:Version}), libprotobuf-dev (= ${binary:Version})
+ libprotoc23 (= ${binary:Version}), libprotobuf-dev (= ${binary:Version})
 Replaces: libprotobuf-dev (<< 3.8.0)
 Breaks: libprotobuf-dev (<< 3.8.0)
 Description: protocol buffers compiler library (development files)
@@ -114,7 +114,7 @@ Architecture: linux-any
 Multi-Arch: same
 Section: libdevel
 Depends: ${misc:Depends},
- libprotoc19 (= ${binary:Version}), libprotobuf19 (= ${binary:Version})
+ libprotoc23 (= ${binary:Version}), libprotobuf23 (= ${binary:Version})
 Description: compiler for protocol buffer definition files
  Protocol buffers are a flexible, efficient, automated mechanism for
  serializing structured data - similar to XML, but smaller, faster, and

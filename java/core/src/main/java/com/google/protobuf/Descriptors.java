@@ -702,6 +702,11 @@ public final class Descriptors {
       return Collections.unmodifiableList(Arrays.asList(oneofs));
     }
 
+    /** Get a list of this message type's real oneofs. */
+    public List<OneofDescriptor> getRealOneofs() {
+      return Collections.unmodifiableList(Arrays.asList(oneofs).subList(0, realOneofCount));
+    }
+
     /** Get a list of this message type's extensions. */
     public List<FieldDescriptor> getExtensions() {
       return Collections.unmodifiableList(Arrays.asList(extensions));
@@ -821,6 +826,7 @@ public final class Descriptors {
     private final FieldDescriptor[] fields;
     private final FieldDescriptor[] extensions;
     private final OneofDescriptor[] oneofs;
+    private final int realOneofCount;
 
     // Used to create a placeholder when the type cannot be found.
     Descriptor(final String fullname) throws DescriptorValidationException {
@@ -846,6 +852,7 @@ public final class Descriptors {
       this.fields = new FieldDescriptor[0];
       this.extensions = new FieldDescriptor[0];
       this.oneofs = new OneofDescriptor[0];
+      this.realOneofCount = 0;
 
       // Create a placeholder FileDescriptor to hold this message.
       this.file = new FileDescriptor(packageName, this);
@@ -898,6 +905,18 @@ public final class Descriptors {
           oneofDescriptor.fields[oneofDescriptor.fieldCount++] = fields[i];
         }
       }
+
+      int syntheticOneofCount = 0;
+      for (OneofDescriptor oneof : this.oneofs) {
+        if (oneof.isSynthetic()) {
+          syntheticOneofCount++;
+        } else {
+          if (syntheticOneofCount > 0) {
+            throw new DescriptorValidationException(this, "Synthetic oneofs must come last.");
+          }
+        }
+      }
+      this.realOneofCount = this.oneofs.length - syntheticOneofCount;
 
       file.pool.addSymbol(this);
     }
@@ -1125,6 +1144,40 @@ public final class Descriptors {
       return containingOneof;
     }
 
+    /** Get the field's containing oneof, only if non-synthetic. */
+    public OneofDescriptor getRealContainingOneof() {
+      return containingOneof != null && !containingOneof.isSynthetic() ? containingOneof : null;
+    }
+
+    /**
+     * Returns true if this field was syntactically written with "optional" in the .proto file.
+     * Excludes singular proto3 fields that do not have a label.
+     */
+    public boolean hasOptionalKeyword() {
+      return isProto3Optional
+          || (file.getSyntax() == Syntax.PROTO2 && isOptional() && getContainingOneof() == null);
+    }
+
+    /**
+     * Returns true if this field tracks presence, ie. does the field distinguish between "unset"
+     * and "present with default value."
+     *
+     * <p>This includes required, optional, and oneof fields. It excludes maps, repeated fields, and
+     * singular proto3 fields without "optional".
+     *
+     * <p>For fields where hasPresence() == true, the return value of msg.hasField() is semantically
+     * meaningful.
+     */
+    boolean hasPresence() {
+      if (isRepeated()) {
+        return false;
+      }
+      return getType() == Type.MESSAGE
+          || getType() == Type.GROUP
+          || getContainingOneof() != null
+          || file.getSyntax() == Syntax.PROTO2;
+    }
+
     /**
      * For extensions defined nested within message types, gets the outer type. Not valid for
      * non-extension fields. For example, consider this {@code .proto} file:
@@ -1203,6 +1256,7 @@ public final class Descriptors {
     private final String jsonName;
     private final FileDescriptor file;
     private final Descriptor extensionScope;
+    private final boolean isProto3Optional;
 
     // Possibly initialized during cross-linking.
     private Type type;
@@ -1326,6 +1380,8 @@ public final class Descriptors {
       if (proto.hasType()) {
         type = Type.valueOf(proto.getType());
       }
+
+      isProto3Optional = proto.getProto3Optional();
 
       if (getNumber() <= 0) {
         throw new DescriptorValidationException(this, "Field numbers must be positive integers.");
@@ -2031,6 +2087,16 @@ public final class Descriptors {
       return outputType;
     }
 
+    /** Get whether or not the inputs are streaming. */
+    public boolean isClientStreaming() {
+      return proto.getClientStreaming();
+    }
+
+    /** Get whether or not the outputs are streaming. */
+    public boolean isServerStreaming() {
+      return proto.getServerStreaming();
+    }
+
     /** Get the {@code MethodOptions}, defined in {@code descriptor.proto}. */
     public MethodOptions getOptions() {
       return proto.getOptions();
@@ -2109,11 +2175,12 @@ public final class Descriptors {
   /**
    * All descriptors implement this to make it easier to implement tools like {@code
    * DescriptorPool}.
-   *
-   * <p>This class is public so that the methods it exposes can be called from outside of this
-   * package. However, it should only be subclassed from nested classes of Descriptors.
    */
   public abstract static class GenericDescriptor {
+
+    // Private constructor to prevent subclasses outside of com.google.protobuf.Descriptors
+    private GenericDescriptor() {}
+
     public abstract Message toProto();
 
     public abstract String getName();
@@ -2583,20 +2650,23 @@ public final class Descriptors {
   }
 
   /** Describes an oneof of a message type. */
-  public static final class OneofDescriptor {
+  public static final class OneofDescriptor extends GenericDescriptor {
     /** Get the index of this descriptor within its parent. */
     public int getIndex() {
       return index;
     }
 
+    @Override
     public String getName() {
       return proto.getName();
     }
 
+    @Override
     public FileDescriptor getFile() {
       return file;
     }
 
+    @Override
     public String getFullName() {
       return fullName;
     }
@@ -2613,6 +2683,10 @@ public final class Descriptors {
       return proto.getOptions();
     }
 
+    public boolean isSynthetic() {
+      return fields.length == 1 && fields[0].isProto3Optional;
+    }
+
     /** Get a list of this message type's fields. */
     public List<FieldDescriptor> getFields() {
       return Collections.unmodifiableList(Arrays.asList(fields));
@@ -2620,6 +2694,11 @@ public final class Descriptors {
 
     public FieldDescriptor getField(int index) {
       return fields[index];
+    }
+
+    @Override
+    public OneofDescriptorProto toProto() {
+      return proto;
     }
 
     private void setProto(final OneofDescriptorProto proto) {

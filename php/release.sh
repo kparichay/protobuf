@@ -10,8 +10,8 @@ set -ex
 
 VERSION=$1
 
-git clone https://github.com/protocolbuffers/protobuf-php.git
-git clone https://github.com/protocolbuffers/protobuf.git
+git clone git@github.com:protocolbuffers/protobuf-php.git
+git clone git@github.com:protocolbuffers/protobuf.git
 
 # Clean old files
 pushd protobuf-php
@@ -20,7 +20,7 @@ popd
 
 # Checkout the target version
 pushd protobuf/php
-git checkout $VERSION
+git checkout -b $VERSION
 popd
 
 # Copy files

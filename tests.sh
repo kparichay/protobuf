@@ -6,6 +6,8 @@
 
 # For when some other test needs the C++ main build, including protoc and
 # libprotobuf.
+LAST_RELEASED=3.9.0
+
 internal_build_cpp() {
   if [ -f src/protoc ]; then
     # Already built.
@@ -60,8 +62,9 @@ build_cpp_distcheck() {
 
   # List all files that should be included in the distribution package.
   git ls-files | grep "^\(java\|python\|objectivec\|csharp\|js\|ruby\|php\|cmake\|examples\|src/google/protobuf/.*\.proto\)" |\
-    grep -v ".gitignore" | grep -v "java/compatibility_tests" |\
-    grep -v "python/compatibility_tests" | grep -v "csharp/compatibility_tests" > dist.lst
+    grep -v ".gitignore" | grep -v "java/compatibility_tests" | grep -v "java/lite/proguard.pgcfg" |\
+    grep -v "python/compatibility_tests" | grep -v "python/docs" | grep -v "python/.repo-metadata.json" |\
+    grep -v "csharp/compatibility_tests" > dist.lst
   # Unzip the dist tar file.
   DIST=`ls *.tar.gz`
   tar -xf $DIST
@@ -147,6 +150,9 @@ build_csharp() {
 
   # Run csharp compatibility test between 3.0.0 and the current version.
   csharp/compatibility_tests/v3.0.0/test.sh 3.0.0
+
+  # Run csharp compatibility test between last released and the current version.
+  csharp/compatibility_tests/v3.0.0/test.sh $LAST_RELEASED
 }
 
 build_golang() {
@@ -157,10 +163,13 @@ build_golang() {
 
   export GOPATH="$HOME/gocode"
   mkdir -p "$GOPATH/src/github.com/protocolbuffers"
+  mkdir -p "$GOPATH/src/github.com/golang"
   rm -f "$GOPATH/src/github.com/protocolbuffers/protobuf"
+  rm -f "$GOPATH/src/github.com/golang/protobuf"
   ln -s "`pwd`" "$GOPATH/src/github.com/protocolbuffers/protobuf"
   export PATH="$GOPATH/bin:$PATH"
-  go get github.com/golang/protobuf/protoc-gen-go
+  (cd $GOPATH/src/github.com/golang && git clone https://github.com/golang/protobuf.git && cd protobuf && git checkout v1.3.5)
+  go install github.com/golang/protobuf/protoc-gen-go
 
   cd examples && PROTO_PATH="-I../src -I." make gotest && cd ..
 }
@@ -168,6 +177,10 @@ build_golang() {
 use_java() {
   version=$1
   case "$version" in
+    jdk8)
+      export PATH=/usr/lib/jvm/java-8-openjdk-amd64/bin:$PATH
+      export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+      ;;
     jdk7)
       export PATH=/usr/lib/jvm/java-7-openjdk-amd64/bin:$PATH
       export JAVA_HOME=/usr/lib/jvm/java-7-openjdk-amd64
@@ -186,7 +199,7 @@ use_java() {
   $MVN -version
 }
 
-# --batch-mode supresses download progress output that spams the logs.
+# --batch-mode suppresses download progress output that spams the logs.
 MVN="mvn --batch-mode"
 
 build_java() {
@@ -204,6 +217,9 @@ build_java() {
 build_java_with_conformance_tests() {
   # Java build needs `protoc`.
   internal_build_cpp
+  # This local installation avoids the problem caused by a new version not yet in Maven Central
+  cd java/bom && $MVN install
+  cd ../..
   cd java && $MVN test && $MVN install
   cd util && $MVN package assembly:single
   cd ../..
@@ -221,10 +237,32 @@ build_java_oracle7() {
 build_java_compatibility() {
   use_java jdk7
   internal_build_cpp
-  # Use the unit-tests extraced from 2.5.0 to test the compatibilty between
+  # Use the unit-tests extracted from 2.5.0 to test the compatibility between
   # 3.0.0-beta-4 and the current version.
   cd java/compatibility_tests/v2.5.0
   ./test.sh 3.0.0-beta-4
+
+  # Test the last released and current version.
+  ./test.sh $LAST_RELEASED
+}
+build_java_linkage_monitor() {
+  # Linkage Monitor checks compatibility with other Google libraries
+  # https://github.com/GoogleCloudPlatform/cloud-opensource-java/tree/master/linkage-monitor
+
+  use_java jdk8
+  internal_build_cpp
+
+  # Linkage Monitor uses $HOME/.m2 local repository
+  MVN="mvn -e -B -Dhttps.protocols=TLSv1.2"
+  cd java
+  # Installs the snapshot version locally
+  $MVN install -Dmaven.test.skip=true
+
+  # Linkage Monitor uses the snapshot versions installed in $HOME/.m2 to verify compatibility
+  JAR=linkage-monitor-latest-all-deps.jar
+  curl -v -O "https://storage.googleapis.com/cloud-opensource-java-linkage-monitor/${JAR}"
+  # Fails if there's new linkage errors compared with baseline
+  java -jar $JAR com.google.cloud:libraries-bom
 }
 
 build_objectivec_ios() {
@@ -316,6 +354,10 @@ build_python37() {
   build_python_version py37-python
 }
 
+build_python38() {
+  build_python_version py38-python
+}
+
 build_python_cpp() {
   internal_build_cpp
   export LD_LIBRARY_PATH=../src/.libs # for Linux
@@ -364,14 +406,21 @@ build_python37_cpp() {
   build_python_cpp_version py37-cpp
 }
 
+build_python38_cpp() {
+  build_python_cpp_version py38-cpp
+}
+
 build_python_compatibility() {
   internal_build_cpp
-  # Use the unit-tests extraced from 2.5.0 to test the compatibilty.
+  # Use the unit-tests extracted from 2.5.0 to test the compatibility.
   cd python/compatibility_tests/v2.5.0
   # Test between 2.5.0 and the current version.
   ./test.sh 2.5.0
   # Test between 3.0.0-beta-1 and the current version.
   ./test.sh 3.0.0-beta-1
+
+  # Test between last released and current version.
+  ./test.sh $LAST_RELEASED
 }
 
 build_ruby23() {
@@ -390,9 +439,20 @@ build_ruby26() {
   internal_build_cpp  # For conformance tests.
   cd ruby && bash travis-test.sh ruby-2.6.0 && cd ..
 }
+build_ruby27() {
+  internal_build_cpp  # For conformance tests.
+  cd ruby && bash travis-test.sh ruby-2.7.0 && cd ..
+}
 
 build_javascript() {
   internal_build_cpp
+  NODE_VERSION=node-v12.16.3-darwin-x64
+  NODE_TGZ="$NODE_VERSION.tar.gz"
+  pushd /tmp
+  curl -OL https://nodejs.org/dist/v12.16.3/$NODE_TGZ
+  tar zxvf $NODE_TGZ
+  export PATH=$PATH:`pwd`/$NODE_VERSION/bin
+  popd
   cd js && npm install && npm test && cd ..
   cd conformance && make test_nodejs && cd ..
 }
@@ -432,24 +492,12 @@ generate_php_test_proto() {
 use_php() {
   VERSION=$1
   export PATH=/usr/local/php-${VERSION}/bin:$PATH
-  export CPLUS_INCLUDE_PATH=/usr/local/php-${VERSION}/include/php/main:/usr/local/php-${VERSION}/include/php/:$CPLUS_INCLUDE_PATH
-  export C_INCLUDE_PATH=/usr/local/php-${VERSION}/include/php/main:/usr/local/php-${VERSION}/include/php/:$C_INCLUDE_PATH
   generate_php_test_proto
 }
 
 use_php_zts() {
   VERSION=$1
   export PATH=/usr/local/php-${VERSION}-zts/bin:$PATH
-  export CPLUS_INCLUDE_PATH=/usr/local/php-${VERSION}-zts/include/php/main:/usr/local/php-${VERSION}-zts/include/php/:$CPLUS_INCLUDE_PATH
-  export C_INCLUDE_PATH=/usr/local/php-${VERSION}-zts/include/php/main:/usr/local/php-${VERSION}-zts/include/php/:$C_INCLUDE_PATH
-  generate_php_test_proto
-}
-
-use_php_bc() {
-  VERSION=$1
-  export PATH=/usr/local/php-${VERSION}-bc/bin:$PATH
-  export CPLUS_INCLUDE_PATH=/usr/local/php-${VERSION}-bc/include/php/main:/usr/local/php-${VERSION}-bc/include/php/:$CPLUS_INCLUDE_PATH
-  export C_INCLUDE_PATH=/usr/local/php-${VERSION}-bc/include/php/main:/usr/local/php-${VERSION}-bc/include/php/:$C_INCLUDE_PATH
   generate_php_test_proto
 }
 
@@ -467,14 +515,17 @@ build_php5.5() {
 }
 
 build_php5.5_c() {
+  IS_64BIT=$1
   use_php 5.5
-  pushd php/tests
-  /bin/bash ./test.sh 5.5
+  php/tests/test.sh
+  pushd conformance
+  if [ "$IS_64BIT" = "true" ]
+  then
+    make test_php_c
+  else
+    make test_php_c_32
+  fi
   popd
-  # TODO(teboring): Add it back
-  # pushd conformance
-  # make test_php_c
-  # popd
 }
 
 build_php5.5_mixed() {
@@ -482,18 +533,23 @@ build_php5.5_mixed() {
   pushd php
   rm -rf vendor
   composer update
-  /bin/bash ./tests/compile_extension.sh ./ext/google/protobuf
+  tests/compile_extension.sh
   php -dextension=./ext/google/protobuf/modules/protobuf.so ./vendor/bin/phpunit
   popd
 }
 
 build_php5.5_zts_c() {
+  IS_64BIT=$1
   use_php_zts 5.5
-  cd php/tests && /bin/bash ./test.sh 5.5-zts && cd ../..
-  # TODO(teboring): Add it back
-  # pushd conformance
-  # make test_php_zts_c
-  # popd
+  php/tests/test.sh
+  pushd conformance
+  if [ "$IS_64BIT" = "true" ]
+  then
+    make test_php_c
+  else
+    make test_php_c_32
+  fi
+  popd
 }
 
 build_php5.6() {
@@ -509,12 +565,17 @@ build_php5.6() {
 }
 
 build_php5.6_c() {
+  IS_64BIT=$1
   use_php 5.6
-  cd php/tests && /bin/bash ./test.sh 5.6 && cd ../..
-  # TODO(teboring): Add it back
-  # pushd conformance
-  # make test_php_c
-  # popd
+  php/tests/test.sh
+  pushd conformance
+  if [ "$IS_64BIT" = "true" ]
+  then
+    make test_php_c
+  else
+    make test_php_c_32
+  fi
+  popd
 }
 
 build_php5.6_mixed() {
@@ -522,18 +583,23 @@ build_php5.6_mixed() {
   pushd php
   rm -rf vendor
   composer update
-  /bin/bash ./tests/compile_extension.sh ./ext/google/protobuf
+  tests/compile_extension.sh
   php -dextension=./ext/google/protobuf/modules/protobuf.so ./vendor/bin/phpunit
   popd
 }
 
 build_php5.6_zts_c() {
+  IS_64BIT=$1
   use_php_zts 5.6
-  cd php/tests && /bin/bash ./test.sh 5.6-zts && cd ../..
-  # TODO(teboring): Add it back
-  # pushd conformance
-  # make test_php_zts_c
-  # popd
+  php/tests/test.sh
+  pushd conformance
+  if [ "$IS_64BIT" = "true" ]
+  then
+    make test_php_c
+  else
+    make test_php_c_32
+  fi
+  popd
 }
 
 build_php5.6_mac() {
@@ -541,6 +607,7 @@ build_php5.6_mac() {
   # Install PHP
   curl -s https://php-osx.liip.ch/install.sh | bash -s 5.6
   PHP_FOLDER=`find /usr/local -type d -name "php5-5.6*"`  # The folder name may change upon time
+  test ! -z "$PHP_FOLDER"
   export PATH="$PHP_FOLDER/bin:$PATH"
 
   # Install phpunit
@@ -554,11 +621,8 @@ build_php5.6_mac() {
   sudo mv valgrind /usr/local/bin/valgrind
 
   # Test
-  cd php/tests && /bin/bash ./test.sh && cd ../..
-  # TODO(teboring): Add it back
-  # pushd conformance
-  # make test_php_c
-  # popd
+  php/tests/test.sh
+  (cd conformance && make test_php_c)
 }
 
 build_php7.0() {
@@ -568,18 +632,21 @@ build_php7.0() {
   composer update
   ./vendor/bin/phpunit
   popd
-  pushd conformance
-  make test_php
-  popd
+  (cd conformance && make test_php)
 }
 
 build_php7.0_c() {
+  IS_64BIT=$1
   use_php 7.0
-  cd php/tests && /bin/bash ./test.sh 7.0 && cd ../..
-  # TODO(teboring): Add it back
-  # pushd conformance
-  # make test_php_c
-  # popd
+  php/tests/test.sh
+  pushd conformance
+  if [ "$IS_64BIT" = "true" ]
+  then
+    make test_php_c
+  else
+    make test_php_c_32
+  fi
+  popd
 }
 
 build_php7.0_mixed() {
@@ -587,25 +654,31 @@ build_php7.0_mixed() {
   pushd php
   rm -rf vendor
   composer update
-  /bin/bash ./tests/compile_extension.sh ./ext/google/protobuf
+  tests/compile_extension.sh
   php -dextension=./ext/google/protobuf/modules/protobuf.so ./vendor/bin/phpunit
   popd
 }
 
 build_php7.0_zts_c() {
+  IS_64BIT=$1
   use_php_zts 7.0
-  cd php/tests && /bin/bash ./test.sh 7.0-zts && cd ../..
-  # TODO(teboring): Add it back.
-  # pushd conformance
-  # make test_php_zts_c
-  # popd
+  php/tests/test.sh
+  pushd conformance
+  if [ "$IS_64BIT" = "true" ]
+  then
+    make test_php_c
+  else
+    make test_php_c_32
+  fi
+  popd
 }
 
 build_php7.0_mac() {
   generate_php_test_proto
   # Install PHP
   curl -s https://php-osx.liip.ch/install.sh | bash -s 7.0
-  PHP_FOLDER=`find /usr/local -type d -name "php7-7.0*"`  # The folder name may change upon time
+  PHP_FOLDER=`find /usr/local -type d -name "php5-7.0*"`  # The folder name may change upon time
+  test ! -z "$PHP_FOLDER"
   export PATH="$PHP_FOLDER/bin:$PATH"
 
   # Install phpunit
@@ -619,16 +692,43 @@ build_php7.0_mac() {
   sudo mv valgrind /usr/local/bin/valgrind
 
   # Test
-  cd php/tests && /bin/bash ./test.sh && cd ../..
-  # TODO(teboring): Add it back
-  # pushd conformance
-  # make test_php_c
-  # popd
+  php/tests/test.sh
+  (cd conformance && make test_php_c)
+}
+
+build_php7.3_mac() {
+  generate_php_test_proto
+  # Install PHP
+  # We can't test PHP 7.4 with these binaries yet:
+  #   https://github.com/liip/php-osx/issues/276
+  curl -s https://php-osx.liip.ch/install.sh | bash -s 7.3
+  PHP_FOLDER=`find /usr/local -type d -name "php5-7.3*"`  # The folder name may change upon time
+  test ! -z "$PHP_FOLDER"
+  export PATH="$PHP_FOLDER/bin:$PATH"
+
+  # Install phpunit
+  curl https://phar.phpunit.de/phpunit-8.phar -L -o phpunit.phar
+  chmod +x phpunit.phar
+  sudo mv phpunit.phar /usr/local/bin/phpunit
+
+  # Install valgrind
+  echo "#! /bin/bash" > valgrind
+  chmod ug+x valgrind
+  sudo mv valgrind /usr/local/bin/valgrind
+
+  # Test
+  php/tests/test.sh
+  (cd conformance && make test_php_c)
 }
 
 build_php_compatibility() {
   internal_build_cpp
-  php/tests/compatibility_test.sh
+  php/tests/compatibility_test.sh $LAST_RELEASED
+}
+
+build_php_multirequest() {
+  use_php 7.4
+  php/tests/multirequest.sh
 }
 
 build_php7.1() {
@@ -638,21 +738,21 @@ build_php7.1() {
   composer update
   ./vendor/bin/phpunit
   popd
-  pushd conformance
-  make test_php
-  popd
+  (cd conformance && make test_php)
 }
 
 build_php7.1_c() {
-  ENABLE_CONFORMANCE_TEST=$1
+  IS_64BIT=$1
   use_php 7.1
-  cd php/tests && /bin/bash ./test.sh 7.1 && cd ../..
-  if [ "$ENABLE_CONFORMANCE_TEST" = "true" ]
+  php/tests/test.sh
+  pushd conformance
+  if [ "$IS_64BIT" = "true" ]
   then
-    pushd conformance
     make test_php_c
-    popd
+  else
+    make test_php_c_32
   fi
+  popd
 }
 
 build_php7.1_mixed() {
@@ -660,17 +760,74 @@ build_php7.1_mixed() {
   pushd php
   rm -rf vendor
   composer update
-  /bin/bash ./tests/compile_extension.sh ./ext/google/protobuf
+  tests/compile_extension.sh
   php -dextension=./ext/google/protobuf/modules/protobuf.so ./vendor/bin/phpunit
   popd
 }
 
 build_php7.1_zts_c() {
+  IS_64BIT=$1
   use_php_zts 7.1
-  cd php/tests && /bin/bash ./test.sh 7.1-zts && cd ../..
+  php/tests/test.sh
   pushd conformance
-  # make test_php_c
+  if [ "$IS_64BIT" = "true" ]
+  then
+    make test_php_c
+  else
+    make test_php_c_32
+  fi
   popd
+}
+
+build_php7.4() {
+  use_php 7.4
+  pushd php
+  rm -rf vendor
+  composer update
+  ./vendor/bin/phpunit
+  popd
+  (cd conformance && make test_php)
+}
+
+build_php7.4_c() {
+  IS_64BIT=$1
+  use_php 7.4
+  php/tests/test.sh
+  pushd conformance
+  if [ "$IS_64BIT" = "true" ]
+  then
+    make test_php_c
+  else
+    make test_php_c_32
+  fi
+  popd
+  (cd php/ext/google/protobuf && phpize --clean)
+}
+
+build_php7.4_mixed() {
+  use_php 7.4
+  pushd php
+  rm -rf vendor
+  composer update
+  tests/compile_extension.sh
+  php -dextension=./ext/google/protobuf/modules/protobuf.so ./vendor/bin/phpunit
+  popd
+  (cd php/ext/google/protobuf && phpize --clean)
+}
+
+build_php7.4_zts_c() {
+  IS_64BIT=$1
+  use_php_zts 7.4
+  php/tests/test.sh
+  pushd conformance
+  if [ "$IS_64BIT" = "true" ]
+  then
+    make test_php_c
+  else
+    make test_php_c_32
+  fi
+  popd
+  (cd php/ext/google/protobuf && phpize --clean)
 }
 
 build_php_all_32() {
@@ -678,22 +835,27 @@ build_php_all_32() {
   build_php5.6
   build_php7.0
   build_php7.1
-  build_php5.5_c
-  build_php5.6_c
-  build_php7.0_c
+  build_php7.4
+  build_php5.5_c $1
+  build_php5.6_c $1
+  build_php7.0_c $1
   build_php7.1_c $1
+  build_php7.4_c $1
   build_php5.5_mixed
   build_php5.6_mixed
   build_php7.0_mixed
   build_php7.1_mixed
-  build_php5.5_zts_c
-  build_php5.6_zts_c
-  build_php7.0_zts_c
-  build_php7.1_zts_c
+  build_php7.4_mixed
+  build_php5.5_zts_c $1
+  build_php5.6_zts_c $1
+  build_php7.0_zts_c $1
+  build_php7.1_zts_c $1
+  build_php7.4_zts_c $1
 }
 
 build_php_all() {
   build_php_all_32 true
+  build_php_multirequest
   build_php_compatibility
 }
 
@@ -712,6 +874,7 @@ Usage: $0 { cpp |
             java_jdk7 |
             java_oracle7 |
             java_compatibility |
+            java_linkage_monitor |
             objectivec_ios |
             objectivec_ios_debug |
             objectivec_ios_release |
@@ -727,6 +890,7 @@ Usage: $0 { cpp |
             ruby24 |
             ruby25 |
             ruby26 |
+            ruby27 |
             jruby |
             ruby_all |
             php5.5   |

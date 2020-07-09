@@ -35,13 +35,16 @@
 // TODO(kenton):  Improve this unittest to bring it up to the standards of
 //   other proto2 unittests.
 
+#include <google/protobuf/repeated_field.h>
+
 #include <algorithm>
+#include <cstdlib>
+#include <iterator>
 #include <limits>
 #include <list>
+#include <sstream>
 #include <type_traits>
 #include <vector>
-
-#include <google/protobuf/repeated_field.h>
 
 #include <google/protobuf/stubs/logging.h>
 #include <google/protobuf/stubs/common.h>
@@ -50,8 +53,10 @@
 #include <gmock/gmock.h>
 #include <google/protobuf/testing/googletest.h>
 #include <gtest/gtest.h>
-
 #include <google/protobuf/stubs/stl_util.h>
+
+// Must be included last.
+#include <google/protobuf/port_def.inc>
 
 namespace google {
 namespace protobuf {
@@ -268,6 +273,68 @@ TEST(RepeatedField, Resize) {
   EXPECT_TRUE(field.empty());
 }
 
+TEST(RepeatedField, ReserveNothing) {
+  RepeatedField<int> field;
+  EXPECT_EQ(0, field.Capacity());
+
+  field.Reserve(-1);
+  EXPECT_EQ(0, field.Capacity());
+}
+
+TEST(RepeatedField, ReserveLowerClamp) {
+  const int clamped_value = internal::CalculateReserveSize(0, 1);
+  EXPECT_EQ(internal::kRepeatedFieldLowerClampLimit, clamped_value);
+  EXPECT_EQ(clamped_value, internal::CalculateReserveSize(clamped_value, 2));
+}
+
+TEST(RepeatedField, ReserveGrowth) {
+  // Make sure the field capacity doubles in size on repeated reservation.
+  for (int size = internal::kRepeatedFieldLowerClampLimit, i = 0; i < 4;
+       ++i, size *= 2) {
+    EXPECT_EQ(size * 2, internal::CalculateReserveSize(size, size + 1));
+  }
+}
+
+TEST(RepeatedField, ReserveLarge) {
+  const int old_size = 10;
+  // This is a size we won't get by doubling:
+  const int new_size = old_size * 3 + 1;
+
+  // Reserving more than 2x current capacity should grow directly to that size.
+  EXPECT_EQ(new_size, internal::CalculateReserveSize(old_size, new_size));
+}
+
+TEST(RepeatedField, ReserveHuge) {
+  // Largest value that does not clamp to the large limit:
+  constexpr int non_clamping_limit = std::numeric_limits<int>::max() / 2;
+  ASSERT_LT(2 * non_clamping_limit, std::numeric_limits<int>::max());
+  EXPECT_LT(internal::CalculateReserveSize(non_clamping_limit,
+                                           non_clamping_limit + 1),
+            std::numeric_limits<int>::max());
+
+  // Smallest size that *will* clamp to the upper limit:
+  constexpr int min_clamping_size = std::numeric_limits<int>::max() / 2 + 1;
+  EXPECT_EQ(
+      internal::CalculateReserveSize(min_clamping_size, min_clamping_size + 1),
+      std::numeric_limits<int>::max());
+
+#ifdef PROTOBUF_TEST_ALLOW_LARGE_ALLOC
+  // The rest of this test may allocate several GB of memory, so it is only
+  // built if explicitly requested.
+  RepeatedField<int> huge_field;
+
+  // Reserve a size for huge_field that will clamp.
+  huge_field.Reserve(min_clamping_size);
+  EXPECT_GE(huge_field.Capacity(), min_clamping_size);
+  ASSERT_LT(huge_field.Capacity(), std::numeric_limits<int>::max() - 1);
+
+  // Allocation may return more memory than we requested. However, the updated
+  // size must still be clamped to a valid range.
+  huge_field.Reserve(huge_field.Capacity() + 1);
+  EXPECT_EQ(huge_field.Capacity(), std::numeric_limits<int>::max());
+#endif  // PROTOBUF_TEST_ALLOW_LARGE_ALLOC
+}
+
 TEST(RepeatedField, MergeFrom) {
   RepeatedField<int> source, destination;
   source.Add(4);
@@ -341,6 +408,71 @@ TEST(RepeatedField, Erase) {
   EXPECT_EQ(4, me.Get(0));
   EXPECT_EQ(7, me.Get(1));
   EXPECT_EQ(8, me.Get(2));
+}
+
+// Add contents of empty container to an empty field.
+TEST(RepeatedField, AddRange1) {
+  RepeatedField<int> me;
+  std::vector<int> values;
+
+  me.Add(values.begin(), values.end());
+  ASSERT_EQ(me.size(), 0);
+}
+
+// Add contents of container with one thing to an empty field.
+TEST(RepeatedField, AddRange2) {
+  RepeatedField<int> me;
+  std::vector<int> values;
+  values.push_back(-1);
+
+  me.Add(values.begin(), values.end());
+  ASSERT_EQ(me.size(), 1);
+  ASSERT_EQ(me.Get(0), values[0]);
+}
+
+// Add contents of container with more than one thing to an empty field.
+TEST(RepeatedField, AddRange3) {
+  RepeatedField<int> me;
+  std::vector<int> values;
+  values.push_back(0);
+  values.push_back(1);
+
+  me.Add(values.begin(), values.end());
+  ASSERT_EQ(me.size(), 2);
+  ASSERT_EQ(me.Get(0), values[0]);
+  ASSERT_EQ(me.Get(1), values[1]);
+}
+
+// Add contents of container with more than one thing to a non-empty field.
+TEST(RepeatedField, AddRange4) {
+  RepeatedField<int> me;
+  me.Add(0);
+  me.Add(1);
+
+  std::vector<int> values;
+  values.push_back(2);
+  values.push_back(3);
+
+  me.Add(values.begin(), values.end());
+  ASSERT_EQ(me.size(), 4);
+  ASSERT_EQ(me.Get(0), 0);
+  ASSERT_EQ(me.Get(1), 1);
+  ASSERT_EQ(me.Get(2), values[0]);
+  ASSERT_EQ(me.Get(3), values[1]);
+}
+
+// Add contents of a stringstream in order to test code paths where there is
+// an input iterator.
+TEST(RepeatedField, AddRange5) {
+  RepeatedField<int> me;
+
+  std::stringstream ss;
+  ss << 1 << ' ' << 2;
+
+  me.Add(std::istream_iterator<int>(ss), std::istream_iterator<int>());
+  ASSERT_EQ(me.size(), 2);
+  ASSERT_EQ(me.Get(0), 1);
+  ASSERT_EQ(me.Get(1), 2);
 }
 
 TEST(RepeatedField, CopyConstruct) {
@@ -1634,7 +1766,6 @@ TEST_F(RepeatedPtrFieldPtrsIteratorTest, UninitializedConstPtrIterator) {
 // string
 // - i.e. *iter has type std::string*.
 struct StringLessThan {
-  bool operator()(const std::string* z, const std::string& y) { return *z < y; }
   bool operator()(const std::string* z, const std::string* y) const {
     return *z < *y;
   }
@@ -1770,7 +1901,9 @@ class RepeatedFieldInsertionIteratorsTest : public testing::Test {
   }
 
   virtual void TearDown() {
-    STLDeleteContainerPointers(nested_ptrs.begin(), nested_ptrs.end());
+    for (auto ptr : nested_ptrs) {
+      delete ptr;
+    }
   }
 };
 

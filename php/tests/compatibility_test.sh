@@ -1,17 +1,5 @@
 #!/bin/bash
 
-function use_php() {
-  VERSION=$1
-
-  OLD_PATH=$PATH
-  OLD_CPLUS_INCLUDE_PATH=$CPLUS_INCLUDE_PATH
-  OLD_C_INCLUDE_PATH=$C_INCLUDE_PATH
-
-  export PATH=/usr/local/php-${VERSION}/bin:$OLD_PATH
-  export CPLUS_INCLUDE_PATH=/usr/local/php-${VERSION}/include/php/main:/usr/local/php-${VERSION}/include/php/:$OLD_CPLUS_INCLUDE_PATH
-  export C_INCLUDE_PATH=/usr/local/php-${VERSION}/include/php/main:/usr/local/php-${VERSION}/include/php/:$OLD_C_INCLUDE_PATH
-}
-
 function generate_proto() {
   PROTOC1=$1
   PROTOC2=$2
@@ -21,6 +9,8 @@ function generate_proto() {
 
   $PROTOC1 --php_out=generated proto/test_include.proto
   $PROTOC2 --php_out=generated                 \
+    -I../../src -I.                            \
+    proto/empty/echo.proto                     \
     proto/test.proto                           \
     proto/test_no_namespace.proto              \
     proto/test_prefix.proto                    \
@@ -34,6 +24,7 @@ function generate_proto() {
     proto/test_reserved_message_upper.proto    \
     proto/test_service.proto                   \
     proto/test_service_namespace.proto         \
+    proto/test_wrapper_type_setters.proto      \
     proto/test_descriptors.proto
 
   pushd ../../src
@@ -67,22 +58,13 @@ set -ex
 # Change to the script's directory.
 cd $(dirname $0)
 
-# The old version of protobuf that we are testing compatibility against.
-case "$1" in
-  ""|3.5.0)
-    OLD_VERSION=3.5.0
-    OLD_VERSION_PROTOC=http://repo1.maven.org/maven2/com/google/protobuf/protoc/$OLD_VERSION/protoc-$OLD_VERSION-linux-x86_64.exe
-    ;;
-  *)
-    echo "[ERROR]: Unknown version number: $1"
-    exit 1
-    ;;
-esac
+OLD_VERSION=$1
+OLD_VERSION_PROTOC=https://repo1.maven.org/maven2/com/google/protobuf/protoc/$OLD_VERSION/protoc-$OLD_VERSION-linux-x86_64.exe
 
 # Extract the latest protobuf version number.
 VERSION_NUMBER=`grep "PHP_PROTOBUF_VERSION" ../ext/google/protobuf/protobuf.h | sed "s|#define PHP_PROTOBUF_VERSION \"\(.*\)\"|\1|"`
 
-echo "Running compatibility tests between $VERSION_NUMBER and $OLD_VERSION"
+echo "Running compatibility tests between current $VERSION_NUMBER and released $OLD_VERSION"
 
 # Check protoc
 [ -f ../../src/protoc ] || {
@@ -98,7 +80,6 @@ git checkout v$OLD_VERSION
 popd
 
 # Build and copy the new runtime
-use_php 7.1
 pushd ../ext/google/protobuf
 make clean || true
 phpize && ./configure && make

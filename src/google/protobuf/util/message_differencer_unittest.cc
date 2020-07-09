@@ -659,32 +659,32 @@ TEST(MessageDifferencerTest, WithinDefaultFractionOrMarginDoubleTest) {
   // Compare
   EXPECT_FALSE(differencer.Compare(msg1, msg2));
 
-  // Set up a custom field comparitor, with a default fraction and margin for
+  // Set up a custom field comparator, with a default fraction and margin for
   // float and double comparison.
-  util::DefaultFieldComparator field_comparitor;
-  field_comparitor.SetDefaultFractionAndMargin(0.0, 10.0);
-  differencer.set_field_comparator(&field_comparitor);
+  util::DefaultFieldComparator field_comparator;
+  field_comparator.SetDefaultFractionAndMargin(0.0, 10.0);
+  differencer.set_field_comparator(&field_comparator);
 
   // Set comparison to exact, margin and fraction value should not matter.
-  field_comparitor.set_float_comparison(util::DefaultFieldComparator::EXACT);
+  field_comparator.set_float_comparison(util::DefaultFieldComparator::EXACT);
   EXPECT_FALSE(differencer.Compare(msg1, msg2));
 
   // Margin and fraction comparison is activated when float comparison is
   // set to approximate.
-  field_comparitor.set_float_comparison(
+  field_comparator.set_float_comparison(
       util::DefaultFieldComparator::APPROXIMATE);
   EXPECT_TRUE(differencer.Compare(msg1, msg2));
 
   // Test out comparison with fraction.
-  field_comparitor.SetDefaultFractionAndMargin(0.2, 0.0);
+  field_comparator.SetDefaultFractionAndMargin(0.2, 0.0);
   EXPECT_TRUE(differencer.Compare(msg1, msg2));
 
   // Should fail since the fraction is smaller than error.
-  field_comparitor.SetDefaultFractionAndMargin(0.01, 0.0);
+  field_comparator.SetDefaultFractionAndMargin(0.01, 0.0);
   EXPECT_FALSE(differencer.Compare(msg1, msg2));
 
   // Should pass if either fraction or margin are satisfied.
-  field_comparitor.SetDefaultFractionAndMargin(0.01, 10.0);
+  field_comparator.SetDefaultFractionAndMargin(0.01, 10.0);
   EXPECT_TRUE(differencer.Compare(msg1, msg2));
 
   // Make sure that the default margin and fraction affects all fields
@@ -1155,6 +1155,65 @@ TEST(MessageDifferencerTest, RepeatedFieldSmartSetTest) {
       "modified: rm[0].a -> rm[1].a: 1 -> 0\n"
       "modified: rm[1].b -> rm[2].b: 2 -> 0\n"
       "modified: rm[2].b -> rm[0].b: 3 -> 0\n",
+      diff_report);
+}
+
+TEST(MessageDifferencerTest, RepeatedFieldSmartSetTest_IdenticalElements) {
+  // Create the testing protos
+  protobuf_unittest::TestDiffMessage msg1;
+  protobuf_unittest::TestDiffMessage msg2;
+  protobuf_unittest::TestField elem;
+
+  elem.set_a(1);
+  elem.set_b(1);
+  elem.set_c(1);
+
+  *msg1.add_rm() = elem;
+  *msg1.add_rm() = elem;
+  *msg2.add_rm() = elem;
+  *msg2.add_rm() = elem;
+
+  util::MessageDifferencer differencer;
+  differencer.set_repeated_field_comparison(
+      util::MessageDifferencer::AS_SMART_SET);
+  EXPECT_TRUE(differencer.Compare(msg1, msg2));
+}
+
+TEST(MessageDifferencerTest, RepeatedFieldSmartSetTest_PreviouslyMatch) {
+  // Create the testing protos
+  protobuf_unittest::TestDiffMessage msg1;
+  protobuf_unittest::TestDiffMessage msg2;
+  protobuf_unittest::TestField elem1_1, elem1_2;
+  protobuf_unittest::TestField elem2_1, elem2_2;
+
+  elem1_1.set_a(1);
+  elem1_1.set_b(1);
+  elem1_1.set_c(1);
+  elem1_2.set_a(1);
+  elem1_2.set_b(1);
+  elem1_2.set_c(0);
+
+  elem2_1.set_a(1);
+  elem2_1.set_b(1);
+  elem2_1.set_c(1);
+  elem2_2.set_a(1);
+  elem2_2.set_b(0);
+  elem2_2.set_c(1);
+
+  *msg1.add_rm() = elem1_1;
+  *msg1.add_rm() = elem2_1;
+  *msg2.add_rm() = elem1_2;
+  *msg2.add_rm() = elem2_2;
+
+  std::string diff_report;
+  util::MessageDifferencer differencer;
+  differencer.ReportDifferencesToString(&diff_report);
+  differencer.set_repeated_field_comparison(
+      util::MessageDifferencer::AS_SMART_SET);
+  EXPECT_FALSE(differencer.Compare(msg1, msg2));
+  EXPECT_EQ(
+      "modified: rm[0].c: 1 -> 0\n"
+      "modified: rm[1].b: 1 -> 0\n",
       diff_report);
 }
 
@@ -2326,7 +2385,7 @@ class ComparisonTest : public testing::Test {
 
   void field_as_set(const std::string& field) { set_field_ = field; }
 
-  void field_as_map(const string& field, const std::string& key) {
+  void field_as_map(const std::string& field, const std::string& key) {
     map_field_ = field;
     map_key_ = key;
   }
@@ -3139,11 +3198,13 @@ TEST_F(ComparisonTest, EquivalentIgnoresUnknown) {
 }
 
 TEST_F(ComparisonTest, MapTest) {
-  Map<string, std::string>& map1 = *map_proto1_.mutable_map_string_string();
+  Map<std::string, std::string>& map1 =
+      *map_proto1_.mutable_map_string_string();
   map1["key1"] = "1";
   map1["key2"] = "2";
   map1["key3"] = "3";
-  Map<string, std::string>& map2 = *map_proto2_.mutable_map_string_string();
+  Map<std::string, std::string>& map2 =
+      *map_proto2_.mutable_map_string_string();
   map2["key3"] = "0";
   map2["key2"] = "2";
   map2["key1"] = "1";
@@ -3153,11 +3214,13 @@ TEST_F(ComparisonTest, MapTest) {
 }
 
 TEST_F(ComparisonTest, MapIgnoreKeyTest) {
-  Map<string, std::string>& map1 = *map_proto1_.mutable_map_string_string();
+  Map<std::string, std::string>& map1 =
+      *map_proto1_.mutable_map_string_string();
   map1["key1"] = "1";
   map1["key2"] = "2";
   map1["key3"] = "3";
-  Map<string, std::string>& map2 = *map_proto2_.mutable_map_string_string();
+  Map<std::string, std::string>& map2 =
+      *map_proto2_.mutable_map_string_string();
   map2["key4"] = "2";
   map2["key5"] = "3";
   map2["key6"] = "1";
@@ -3384,6 +3447,7 @@ TEST_F(MatchingTest, ReportMatchedForMovedFields) {
       "moved: item[1] -> item[0] : { a: 27 }\n",
       RunWithResult(&differencer, msg1, msg2, true));
 }
+
 
 TEST_F(MatchingTest, MatchesAppearInPostTraversalOrderForMovedFields) {
   protobuf_unittest::TestDiffMessage msg1, msg2;
